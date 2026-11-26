@@ -1,3 +1,4 @@
+
 import { stopLocations } from "./data/mapData";
 import "./App.css";
 import { useEffect, useMemo, useState } from "react";
@@ -6,6 +7,7 @@ import {
   Bus,
   MapPin,
   Search,
+  User,
   Clock,
   Navigation,
   LocateFixed,
@@ -16,11 +18,18 @@ import {
   X,
   Menu,
   ChevronDown,
+  Phone,
+  Pencil,
+  Check,
 } from "lucide-react";
 
-import { onAuthStateChanged, signOut } from "firebase/auth";
-import { auth } from "./firebase";
+import {
+  onAuthStateChanged,
+  signOut,
+  updateProfile,
+} from "firebase/auth";
 
+import { auth } from "./firebase";
 import BusMap from "./components/BusMap";
 import Login from "./components/Login";
 
@@ -31,12 +40,28 @@ import {
 } from "./data/mockData";
 
 // ==========================================
-// DISTANCE CALCULATOR (HAVERSINE)
+// FORMAT USER NAME
+// ==========================================
+function formatName(name = "") {
+  return name
+    .trim()
+    .split(/\s+/)
+    .map(
+      (word) =>
+        word.charAt(0).toUpperCase() +
+        word.slice(1).toLowerCase()
+    )
+    .join(" ");
+}
+
+// ==========================================
+// DISTANCE CALCULATOR
 // ==========================================
 function calculateDistance(lat1, lon1, lat2, lon2) {
   const earthRadius = 6371;
 
-  const toRadians = (degrees) => (degrees * Math.PI) / 180;
+  const toRadians = (degrees) =>
+    (degrees * Math.PI) / 180;
 
   const dLat = toRadians(lat2 - lat1);
   const dLon = toRadians(lon2 - lon1);
@@ -47,7 +72,8 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
       Math.cos(toRadians(lat2)) *
       Math.sin(dLon / 2) ** 2;
 
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const c =
+    2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
   return earthRadius * c;
 }
@@ -57,16 +83,32 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 // ==========================================
 function App() {
   // ==========================================
-  // AUTHENTICATION
+  // AUTHENTICATION & PROFILE
   // ==========================================
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
+  const [profileName, setProfileName] = useState("");
+  const [showProfile, setShowProfile] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+
+  // ==========================================
+  // FIREBASE AUTH LISTENER
+  // ==========================================
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(
       auth,
       (currentUser) => {
         setUser(currentUser);
+
+        setProfileName(
+          currentUser?.displayName
+            ? formatName(currentUser.displayName)
+            : ""
+        );
+
         setAuthLoading(false);
       },
       (error) => {
@@ -79,7 +121,45 @@ function App() {
   }, []);
 
   // ==========================================
-  // JOURNEY AND BUS STATES
+  // SAVE / UPDATE PROFILE NAME
+  // ==========================================
+  const saveProfileName = async () => {
+    const trimmedName = newName.trim();
+
+    if (trimmedName.length < 2) {
+      alert("Please enter a name with at least 2 characters.");
+      return;
+    }
+
+    if (!auth.currentUser) {
+      alert("Please login again.");
+      return;
+    }
+
+    setProfileSaving(true);
+
+    try {
+      const formattedName = formatName(trimmedName);
+
+      await updateProfile(auth.currentUser, {
+        displayName: formattedName,
+      });
+
+      setProfileName(formattedName);
+      setNewName(formattedName);
+      setEditingName(false);
+
+      alert("Profile name updated successfully!");
+    } catch (error) {
+      console.error("Profile update error:", error);
+      alert("Unable to update your name. Please try again.");
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  // ==========================================
+  // JOURNEY & BUS STATES
   // ==========================================
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -394,7 +474,9 @@ function App() {
 
           <button
             className="ct-brand"
-            onClick={() => scrollToSection("home-section", "Home")}
+            onClick={() =>
+              scrollToSection("home-section", "Home")
+            }
           >
             <span className="ct-brand-icon">
               <Bus size={25} />
@@ -473,6 +555,7 @@ function App() {
             </button>
           </nav>
 
+          {/* HEADER ACTIONS */}
           <div className="ct-header-actions">
             <span className="ct-city-label">
               <MapPin size={16} />
@@ -480,22 +563,121 @@ function App() {
             </span>
 
             <button
-              className="ct-logout"
-              onClick={async () => {
-                try {
-                  await signOut(auth);
-                  setSelectedBus(null);
-                  setSelectedStop(null);
-                } catch (error) {
-                  console.error("Logout error:", error);
-                  alert("Unable to logout. Please try again.");
-                }
+              className="ct-profile-btn"
+              onClick={() => {
+                setShowProfile(!showProfile);
+                setEditingName(false);
+                setNewName(profileName);
               }}
             >
-              Logout
+              <User size={16} />
+              Profile
             </button>
           </div>
 
+          {/* PROFILE POPUP */}
+          {showProfile && (
+            <div className="ct-profile-panel">
+              <div className="ct-profile-panel-header">
+                <div className="ct-profile-avatar">
+                  <User size={24} />
+                </div>
+
+                <button
+                  className="ct-profile-close"
+                  onClick={() => setShowProfile(false)}
+                  aria-label="Close profile"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {!editingName ? (
+                <>
+                  <h3>{profileName || "CityTrack User"}</h3>
+
+                  <p className="ct-profile-phone">
+                    <Phone size={14} />
+                    {user?.phoneNumber || "Phone number unavailable"}
+                  </p>
+
+                  <div className="ct-profile-detail">
+                    <span>Account status</span>
+                    <strong>Phone authenticated</strong>
+                  </div>
+
+                  <button
+                    className="ct-profile-edit-btn"
+                    onClick={() => {
+                      setNewName(profileName);
+                      setEditingName(true);
+                    }}
+                  >
+                    <Pencil size={15} />
+                    Edit profile
+                  </button>
+
+                  {/* LOGOUT INSIDE PROFILE */}
+                  <button
+                    className="ct-profile-logout-btn"
+                    onClick={async () => {
+                      try {
+                        await signOut(auth);
+                        setSelectedBus(null);
+                        setSelectedStop(null);
+                        setShowProfile(false);
+                      } catch (error) {
+                        console.error("Logout error:", error);
+                        alert("Unable to logout. Please try again.");
+                      }
+                    }}
+                  >
+                    Logout
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h3>Edit profile</h3>
+
+                  <div className="ct-profile-edit-form">
+                    <label htmlFor="edit-profile-name">
+                      Display name
+                    </label>
+
+                    <input
+                      id="edit-profile-name"
+                      type="text"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      placeholder="Enter your name"
+                      minLength={2}
+                    />
+
+                    <button
+                      className="ct-profile-save-btn"
+                      onClick={saveProfileName}
+                      disabled={profileSaving}
+                    >
+                      <Check size={16} />
+                      {profileSaving ? "Saving..." : "Save changes"}
+                    </button>
+
+                    <button
+                      className="ct-profile-cancel-btn"
+                      onClick={() => {
+                        setEditingName(false);
+                        setNewName(profileName);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* MOBILE MENU BUTTON */}
           <button
             className="ct-mobile-menu"
             onClick={() =>
@@ -513,6 +695,11 @@ function App() {
         {/* HERO */}
         <section className="ct-hero">
           <div className="ct-hero-content">
+
+            <p className="ct-welcome-message">
+              Welcome back, {profileName || "CityTrack User"}!
+            </p>
+
             <span className="ct-live-label">
               <span className="ct-live-dot"></span>
               LIVE CITY BUS INFORMATION
